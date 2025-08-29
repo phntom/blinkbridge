@@ -1,6 +1,7 @@
 services:
   blinkbridge:
-    image: rogerdammit/blinkbridge
+    # docker buildx build --platform=linux/amd64,linux/arm64 -t phntom/blinkbridge:0.0.1 --push .
+    image: phntom/blinkbridge:0.0.1
     volumes:
       - ./config:/config
       # path for temporary files (video clips, concat files, etc.)
@@ -13,6 +14,8 @@ services:
     tty: true # for color logs
     environment:
       - BLINKBRIDGE_CONFIG=/config/config.json
+    ports:
+      - 8558:8000
   mediamtx:
     image: bluenviron/mediamtx
     container_name: mediamtx
