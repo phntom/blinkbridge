@@ -145,6 +145,13 @@ class CameraManager:
     async def close(self) -> None:
         await self.session.close()
 
+    async def handle_event(self, camera_name: str) -> None:
+        """Manually trigger a snapshot for a camera."""
+        log.info(f"Taking snapshot for {camera_name}")
+        camera = self.blink.cameras[camera_name]
+        await camera.snap_picture()
+        await self.blink.refresh()
+
 async def test() -> None:
     cm = CameraManager()
 

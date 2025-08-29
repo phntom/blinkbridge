@@ -9,6 +9,8 @@ from rich.highlighter import NullHighlighter, JSONHighlighter
 from blinkbridge.stream_server import StreamServer
 from blinkbridge.blink import CameraManager
 from blinkbridge.config import *
+import uvicorn
+from blinkbridge.web import get_app
 
 
 log = logging.getLogger(__name__)
@@ -18,6 +20,12 @@ class Application:
         self.stream_servers = {}
         self.cam_manager = None
         self.running = False
+        self.web_server = None
+
+    async def handle_event(self, camera_name: str) -> None:
+        log.info(f"handling event for {camera_name}")
+        await self.cam_manager.handle_event(camera_name)
+        await self.check_for_motion(camera_name)
 
     async def start_stream(self, camera_name: str, redownload: bool=False) -> StreamServer:
         if redownload:
@@ -28,7 +36,7 @@ class Application:
 
         log.info(f"{camera_name}: starting stream server")
         stream_server = StreamServer(camera_name)
-        stream_server.start_server(file_name_initial_video)  
+        stream_server.start_server(file_name_initial_video)
         self.stream_servers[camera_name] = stream_server
 
         return stream_server
@@ -37,8 +45,8 @@ class Application:
         ss = self.stream_servers[camera_name]
 
         if not ss.is_running():
-            return False 
-        
+            return False
+
         file_name_new_clip = await self.cam_manager.check_for_motion(camera_name)
 
         if not file_name_new_clip:
@@ -48,7 +56,7 @@ class Application:
         ss.add_video(file_name_new_clip)
 
         return True
-        
+
     async def start(self) -> None:
         self.running = True
         self.cam_manager = CameraManager()
@@ -57,22 +65,28 @@ class Application:
         # get enabled cameras
         enabled_cameras = set(CONFIG['cameras']['enabled']) if CONFIG['cameras']['enabled'] else set(self.cam_manager.get_cameras())
         enabled_cameras = enabled_cameras - set(CONFIG['cameras']['disabled'])
-        log.info(f"enabled cameras: {enabled_cameras}")      
+        log.info(f"enabled cameras: {enabled_cameras}")
 
         # create stream servers for each camera
         for camera in self.cam_manager.get_cameras():
             if camera not in enabled_cameras:
                 continue
-            
+
             ss = await self.start_stream(camera)
             ss.failure_count = 0
             ss.datetime_started = datetime.now()
 
         log.info(f"monitoring cameras for motion")
+
+        # start web server
+        config = uvicorn.Config(get_app(self), host="0.0.0.0", port=8000, log_config=None)
+        self.web_server = uvicorn.Server(config)
+        asyncio.create_task(self.web_server.serve())
+
         while self.running:
             # check for motion on each stream server
             for camera_name in self.stream_servers:
-                try:                   
+                try:
                     await self.check_for_motion(camera_name)
                 except Exception as e:
                     log.error(f"{camera_name}: error checking for motion: {e}")
@@ -105,15 +119,18 @@ class Application:
     async def close(self) -> None:
         self.running = False
 
+        if self.web_server:
+            self.web_server.should_exit = True
+
         if self.cam_manager:
             await self.cam_manager.close()
-        
+
         for ss in self.stream_servers.values():
             ss.close()
 
 async def main() -> None:
     app = Application()
-    
+
     # Create a cancellation event to coordinate shutdown
     shutdown_event = asyncio.Event()
 
@@ -129,12 +146,12 @@ async def main() -> None:
     try:
         # Start the application
         start_task = asyncio.create_task(app.start())
-        
+
         # Wait for shutdown signal
         await shutdown_event.wait()
 
         log.info("Shutting down...")
-        
+
         # Cancel the start task and wait for it to complete
         start_task.cancel()
         try:
@@ -144,7 +161,7 @@ async def main() -> None:
 
     except Exception as e:
         log.error(f"Unexpected error: {e}")
-    
+
     finally:
         # Ensure app is closed gracefully
         await app.close()
@@ -155,6 +172,5 @@ if __name__ == "__main__":
     )
     logging.getLogger('blinkbridge').setLevel(CONFIG['log_level'])
     logging.getLogger(__name__).setLevel(CONFIG['log_level'])
-    
-    asyncio.run(main())
 
+    asyncio.run(main())

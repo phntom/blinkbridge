@@ -34,6 +34,6 @@ def load_config_file(file_name: Union[str, Path]) -> None:
     PATH_CONCAT = Path(CONFIG['paths']['concat'])
     PATH_CONFIG = Path(CONFIG['paths']['config'])
 
-config_file = os.getenv('BLINKBRIDGE_CONFIG', 'config.json')
+config_file = os.getenv('BLINKBRIDGE_CONFIG', 'config/config.json')
 load_config_file(config_file)
  
